@@ -11,7 +11,8 @@ class ErrorBoundary extends Component<{ id: string; children: ReactNode }, { err
         <div style={{ border: '2px solid red', padding: 12, borderRadius: 8 }}>
           ⚠️ <b>{this.props.id}</b> đang lỗi — phần còn lại vẫn chạy.
           <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12 }}>{String(this.state.error.message)}</pre>
-          <button onClick={() => this.setState({ error: null })}>Thử lại</button>
+          {/* a rejected lazy() is cached forever by React -> drop it so retry calls loadRemote again */}
+          <button onClick={() => { cache.delete(this.props.id); this.setState({ error: null }); }}>Thử lại</button>
         </div>
       );
     }
@@ -28,12 +29,18 @@ const getLazy = (id: string) => {
   return cache.get(id)!;
 };
 
+// getLazy runs inside this child (not in RemoteComponent): when the boundary resets, the child
+// remounts and re-reads the cache. Resolving it in the parent would keep the old rejected lazy().
+function Remote({ id, ...props }: { id: string } & Record<string, unknown>) {
+  const Lazy = getLazy(id);
+  return <Lazy {...props} />;
+}
+
 export default function RemoteComponent({ id, ...props }: { id: string } & Record<string, unknown>) {
-  const Remote = getLazy(id);
   return (
     <ErrorBoundary id={id}>
       <Suspense fallback={<p>Đang tải {id}…</p>}>
-        <Remote {...props} />
+        <Remote id={id} {...props} />
       </Suspense>
     </ErrorBoundary>
   );
