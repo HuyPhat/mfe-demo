@@ -45,6 +45,7 @@ export default {
   ],
   devServer: {
     port: 3002,
+    hot: false, // remote runs inside host; its HMR runtime breaks with ChunkVersionError after rebuild
     headers: { 'Access-Control-Allow-Origin': '*' }, // host on :3000 fetches remotes cross-origin
   },
 };
