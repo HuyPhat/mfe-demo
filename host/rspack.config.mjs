@@ -3,22 +3,22 @@ import { ModuleFederationPlugin } from '@module-federation/enhanced/rspack';
 import pkg from './package.json' with { type: 'json' };
 
 export default {
-  entry: './src/index.js',
+  entry: './src/index.ts',
   output: {
     publicPath: 'auto', // chunk URLs resolve relative to wherever remoteEntry is hosted -> deploy to any CDN path
     uniqueName: 'host',   // avoids global name collisions between apps on the same page
     clean: true,
   },
-  resolve: { extensions: ['.js', '.jsx'] },
+  resolve: { extensions: ['.ts', '.tsx', '.js', '.jsx'] },
   module: {
     rules: [
       {
-        test: /\.jsx?$/,
+        test: /\.[jt]sx?$/,
         exclude: /node_modules/,
         loader: 'builtin:swc-loader',
         options: {
           jsc: {
-            parser: { syntax: 'ecmascript', jsx: true },
+            parser: { syntax: 'typescript', tsx: true },
             transform: { react: { runtime: 'automatic' } },
           },
         },

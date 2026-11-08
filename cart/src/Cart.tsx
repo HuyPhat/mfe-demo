@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import * as styles from './Cart.module.css';
+import type { CartItem } from './events';
 
 export default function Cart() {
-  const [items, setItems] = useState([]);
+  const [items, setItems] = useState<CartItem[]>([]);
 
   // Listen to the contract event; state stays private to this MFE.
   useEffect(() => {
-    const onAdd = (e) => setItems((prev) => [...prev, e.detail]);
+    const onAdd = (e: CustomEvent<CartItem>) => setItems((prev) => [...prev, e.detail]);
     window.addEventListener('cart:add', onAdd);
     return () => window.removeEventListener('cart:add', onAdd);
   }, []);

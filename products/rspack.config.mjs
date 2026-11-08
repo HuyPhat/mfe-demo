@@ -3,22 +3,22 @@ import { ModuleFederationPlugin } from '@module-federation/enhanced/rspack';
 import pkg from './package.json' with { type: 'json' };
 
 export default {
-  entry: './src/index.js',
+  entry: './src/index.ts',
   output: {
     publicPath: 'auto', // chunk URLs resolve relative to wherever remoteEntry is hosted -> deploy to any CDN path
     uniqueName: 'products',   // avoids global name collisions between apps on the same page
     clean: true,
   },
-  resolve: { extensions: ['.js', '.jsx'] },
+  resolve: { extensions: ['.ts', '.tsx', '.js', '.jsx'] },
   module: {
     rules: [
       {
-        test: /\.jsx?$/,
+        test: /\.[jt]sx?$/,
         exclude: /node_modules/,
         loader: 'builtin:swc-loader',
         options: {
           jsc: {
-            parser: { syntax: 'ecmascript', jsx: true },
+            parser: { syntax: 'typescript', tsx: true },
             transform: { react: { runtime: 'automatic' } },
           },
         },
@@ -33,7 +33,7 @@ export default {
     new ModuleFederationPlugin({
       name: 'products',
       filename: 'remoteEntry.js',
-      exposes: { './ProductList': './src/ProductList.jsx' }, // public API of this MFE
+      exposes: { './ProductList': './src/ProductList.tsx' }, // public API of this MFE
       shared: {
         // singleton: only ONE React on the page (two Reacts = broken hooks)
         // requiredVersion: semver range this app accepts; mismatch -> warning in console

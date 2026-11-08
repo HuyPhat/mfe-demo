@@ -4,7 +4,7 @@ import RemoteComponent from './RemoteComponent';
 export default function App() {
   const [count, setCount] = useState(0);
   useEffect(() => {
-    const onChanged = (e) => setCount(e.detail.count);
+    const onChanged = (e: CustomEvent<{ count: number }>) => setCount(e.detail.count);
     window.addEventListener('cart:changed', onChanged);
     return () => window.removeEventListener('cart:changed', onChanged);
   }, []);

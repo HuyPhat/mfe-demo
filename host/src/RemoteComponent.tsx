@@ -1,10 +1,10 @@
-import { Component, lazy, Suspense } from 'react';
+import { Component, lazy, Suspense, type ComponentType, type ReactNode } from 'react';
 import { loadRemote } from '@module-federation/enhanced/runtime';
 
 // Isolation: a crashing or unreachable remote only breaks its own box, never the whole page.
-class ErrorBoundary extends Component {
-  state = { error: null };
-  static getDerivedStateFromError(error) { return { error }; }
+class ErrorBoundary extends Component<{ id: string; children: ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null };
+  static getDerivedStateFromError(error: Error) { return { error }; }
   render() {
     if (this.state.error) {
       return (
@@ -19,13 +19,16 @@ class ErrorBoundary extends Component {
   }
 }
 
-const cache = new Map(); // one lazy() per remote id, otherwise React remounts on every render
-const getLazy = (id) => {
-  if (!cache.has(id)) cache.set(id, lazy(() => loadRemote(id)));
-  return cache.get(id);
+const cache = new Map<string, ComponentType<any>>(); // one lazy() per remote id, otherwise React remounts on every render
+const getLazy = (id: string) => {
+  if (!cache.has(id)) {
+    // loadRemote is untyped without generated remote types (dts); we assert the module shape here
+    cache.set(id, lazy(() => loadRemote<{ default: ComponentType<any> }>(id) as Promise<{ default: ComponentType<any> }>));
+  }
+  return cache.get(id)!;
 };
 
-export default function RemoteComponent({ id, ...props }) {
+export default function RemoteComponent({ id, ...props }: { id: string } & Record<string, unknown>) {
   const Remote = getLazy(id);
   return (
     <ErrorBoundary id={id}>

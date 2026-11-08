@@ -3,4 +3,4 @@ import { createRoot } from 'react-dom/client';
 import ProductList from './ProductList';
 
 window.addEventListener('cart:add', (e) => console.log('[standalone] cart:add', e.detail));
-createRoot(document.getElementById('root')).render(<ProductList />);
+createRoot(document.getElementById('root')!).render(<ProductList />);

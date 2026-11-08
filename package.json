@@ -11,6 +11,9 @@
     "build": "npm run build --workspaces"
   },
   "devDependencies": {
-    "concurrently": "^10.0.7"
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "concurrently": "^10.0.7",
+    "typescript": "^7.0.2"
   }
 }

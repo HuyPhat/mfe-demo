@@ -4,7 +4,8 @@
   "description": "",
   "scripts": {
     "dev": "rspack dev",
-    "build": "rspack build"
+    "build": "rspack build",
+    "typecheck": "tsc"
   },
   "keywords": [],
   "author": "",

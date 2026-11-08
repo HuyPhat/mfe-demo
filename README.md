@@ -18,7 +18,7 @@ npm run dev
 
 Mở http://localhost:3000. Có thể mở riêng từng remote: http://localhost:3001 và http://localhost:3002.
 
-Phiên bản dùng: Rspack 2.3, `@module-federation/enhanced` 2.9 (Module Federation 2.0), React 19.
+Phiên bản dùng: Rspack 2.3, `@module-federation/enhanced` 2.9 (Module Federation 2.0), React 19, TypeScript 7.
 
 ---
 
@@ -82,7 +82,7 @@ Ba file `rspack.config.mjs` gần như giống nhau, và đó là **cố ý**. N
 new ModuleFederationPlugin({
   name: 'products',
   filename: 'remoteEntry.js',
-  exposes: { './ProductList': './src/ProductList.jsx' },
+  exposes: { './ProductList': './src/ProductList.tsx' },
   shared: { react: { singleton: true, requiredVersion: pkg.dependencies.react }, ... },
 })
 ```
@@ -92,13 +92,13 @@ new ModuleFederationPlugin({
 - `output.uniqueName`: tránh đụng tên biến global khi nhiều app cùng nằm trên một trang.
 - `Access-Control-Allow-Origin: *` trong devServer: host ở `:3000` tải file từ `:3001`, tức là khác origin, nên cần CORS.
 
-### Bước 3: Bootstrap pattern ([*/src/index.js](host/src/index.js))
+### Bước 3: Bootstrap pattern ([*/src/index.ts](host/src/index.ts))
 
 ```js
 import('./bootstrap');
 ```
 
-Vì sao không import React ngay trong `index.js`? Module Federation cần **một điểm bất đồng bộ** (async boundary) để kịp tải remote và thương lượng xem dùng bản React nào **trước khi** code của bạn chạy. Nếu import React đồng bộ ngay từ đầu, bạn sẽ gặp lỗi kiểu `Shared module is not available for eager consumption`. Đây là câu hỏi phỏng vấn kinh điển.
+Vì sao không import React ngay trong `index.ts`? Module Federation cần **một điểm bất đồng bộ** (async boundary) để kịp tải remote và thương lượng xem dùng bản React nào **trước khi** code của bạn chạy. Nếu import React đồng bộ ngay từ đầu, bạn sẽ gặp lỗi kiểu `Shared module is not available for eager consumption`. Đây là câu hỏi phỏng vấn kinh điển.
 
 ### Bước 4: Shared dependencies và versioning thư viện
 
@@ -115,7 +115,7 @@ Mình đã kiểm tra trong browser rằng `react@19.3.1` được tải **một
 
 **Thư viện nào nên share?** Những thư viện có state toàn cục hoặc bắt buộc chỉ có một bản: react, react-dom, router, design system. **Không nên** share mọi thứ, vì càng share nhiều thì càng phải phối hợp version giữa các team nhiều.
 
-### Bước 5: Dynamic remotes, để deploy và rollback không cần rebuild host ([host/src/bootstrap.jsx](host/src/bootstrap.jsx))
+### Bước 5: Dynamic remotes, để deploy và rollback không cần rebuild host ([host/src/bootstrap.tsx](host/src/bootstrap.tsx))
 
 ```js
 const remotes = await fetch('/remotes.json').then((r) => r.json());
@@ -132,7 +132,7 @@ Cách *nâng cao* dùng trong demo này: URL của remote nằm trong một file
 
 `mf-manifest.json` là định dạng của Module Federation 2.0. Nó chứa danh sách module được expose, các shared lib và version, nên runtime có thể preload hoặc kiểm tra trước khi tải code.
 
-### Bước 6: Isolation, để remote lỗi mà trang vẫn sống ([host/src/RemoteComponent.jsx](host/src/RemoteComponent.jsx))
+### Bước 6: Isolation, để remote lỗi mà trang vẫn sống ([host/src/RemoteComponent.tsx](host/src/RemoteComponent.tsx))
 
 Remote là code của team khác, được deploy lúc nào không biết, nên **phải coi nó là không đáng tin**:
 
@@ -161,20 +161,27 @@ Các kênh giao tiếp, xếp từ ít coupling đến nhiều coupling:
 
 Contract chính là **API có version**. Nếu cần đổi cấu trúc `detail`, hãy thêm event mới (`cart:add.v2`) và giữ event cũ một thời gian, đừng sửa thẳng vào event cũ.
 
-### Bước 8: Standalone mode ([products/src/bootstrap.jsx](products/src/bootstrap.jsx))
+### Bước 8: Standalone mode ([products/src/bootstrap.tsx](products/src/bootstrap.tsx))
 
 Mỗi remote tự chạy được một mình (port 3001 hoặc 3002), có mock những phần phụ thuộc. Nhờ đó team phát triển và test mà không cần chạy host. Đây là một phần của **scalability về mặt tổ chức**: thêm team mới thì không làm chậm các team cũ.
+
+### Bước 9: TypeScript trong micro-frontend ([cart/src/events.d.ts](cart/src/events.d.ts))
+
+- Mỗi app có `tsconfig.json` riêng và chạy `npm run typecheck -w <app>`. Rspack (swc) chỉ **bỏ kiểu** khi build, không kiểm tra kiểu, nên phải chạy `tsc` riêng (thường trong CI).
+- **Contract bằng type**: mỗi app tự khai báo phần event nó dùng bằng cách mở rộng `WindowEventMap`. Nhờ vậy `addEventListener('cart:add', e => e.detail.price)` có type đầy đủ, và gõ sai tên event sẽ báo lỗi. Các file `events.d.ts` cố ý **lặp lại** giữa app, không gom vào package chung, vì package chung sẽ buộc các team cùng phiên bản. Muốn chắc chắn khớp nhau, dùng contract test hoặc e2e.
+- `loadRemote('cart/Cart')` trả về kiểu `unknown` vì host không biết remote export gì. Trong `RemoteComponent.tsx` ta ép kiểu thủ công. Cách chuẩn là bật `dts` của Module Federation: remote sinh `.d.ts` cho các module expose, host tải về để có type thật.
+- `env.d.ts` khai báo `__APP_VERSION__` (do `DefinePlugin` chèn vào) và kiểu cho `*.module.css`.
 
 ---
 
 ## Phần 3: Bài lab, tự làm để có kinh nghiệm thật
 
-1. **Deploy độc lập**: đổi `"version"` trong `products/package.json` thành `1.1.0`, rồi sửa text trong `ProductList.jsx`. Restart **chỉ** products (vì version được đọc lúc khởi động), rồi reload host: products đã đổi mà **host không bị build lại**.
+1. **Deploy độc lập**: đổi `"version"` trong `products/package.json` thành `1.1.0`, rồi sửa text trong `ProductList.tsx`. Restart **chỉ** products (vì version được đọc lúc khởi động), rồi reload host: products đã đổi mà **host không bị build lại**.
 2. **Remote chết**: tắt riêng cart (hoặc sửa port trong `host/public/remotes.json` thành `3999`), rồi reload. Products vẫn chạy, ô cart hiện lỗi.
-3. **Remote crash lúc render**: thêm `throw new Error('boom')` vào `Cart.jsx`. Hãy xem ErrorBoundary bắt lỗi thế nào.
+3. **Remote crash lúc render**: thêm `throw new Error('boom')` vào `Cart.tsx`. Hãy xem ErrorBoundary bắt lỗi thế nào.
 4. **Lệch version**: trong `cart/rspack.config.mjs`, đặt `requiredVersion: '^18.0.0'` và đọc warning trong console. Sau đó thêm `strictVersion: true` và xem lỗi xảy ra.
 5. **Bỏ singleton**: xoá `singleton: true` khỏi cả 3 app, sau đó xem `__FEDERATION__.__SHARE__` và tab Network. Hãy hiểu vì sao nhiều bản React là nguy hiểm.
-6. **Bỏ bootstrap**: chuyển nội dung `bootstrap.jsx` vào thẳng `index.js` và xem lỗi eager consumption.
+6. **Bỏ bootstrap**: chuyển nội dung `bootstrap.tsx` vào thẳng `index.ts` và xem lỗi eager consumption.
 7. **Mô phỏng CDN có version** (production):
 
    ```bash
@@ -227,6 +234,6 @@ Module Federation 2.0 có tính năng `dts`: remote tự sinh file `.d.ts` của
 ## Những gì demo cố ý chưa làm (và nên thêm khi nào)
 
 - **Routing** (react-router chia route giữa host và remote): thêm khi có nhiều trang.
-- **TypeScript + `dts`**: thêm khi dự án dùng TS. Demo tắt `dts: false` cho gọn.
+- **`dts` (tự sinh type của remote)**: demo đã dùng TS nhưng tắt `dts: false` cho gọn, nên `loadRemote` phải ép kiểu thủ công. Bật `dts` khi remote và host ở repo khác nhau.
 - **Runtime plugin fallback/retry** (`errorLoadRemote`, `@module-federation/retry-plugin`): thêm khi đã có CDN dự phòng.
 - **Shared design system** (expose dưới dạng remote hoặc shared singleton): thêm khi có từ 2 app trở lên cần cùng một UI kit.
