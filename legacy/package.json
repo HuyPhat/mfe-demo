@@ -1,0 +1,22 @@
+{
+  "name": "legacy",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "rspack dev",
+    "build": "rspack build",
+    "typecheck": "tsc"
+  },
+  "private": "true",
+  "dependencies": {
+    "react": "^17.0.2",
+    "react-dom": "^17.0.2"
+  },
+  "devDependencies": {
+    "@module-federation/enhanced": "^2.9.3",
+    "@rspack/cli": "^2.3.1",
+    "@rspack/core": "^2.3.1",
+    "@rspack/dev-server": "^2.2.2",
+    "@types/react": "^17.0.80",
+    "@types/react-dom": "^17.0.25"
+  }
+}

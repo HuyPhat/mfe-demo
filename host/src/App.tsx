@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import RemoteComponent from './RemoteComponent';
+import LegacyApp from './LegacyApp';
 
 export default function App() {
   const [count, setCount] = useState(0);
@@ -18,6 +19,7 @@ export default function App() {
       <main style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16, marginTop: 16 }}>
         <RemoteComponent id="products/ProductList" />
         <RemoteComponent id="cart/Cart" />
+        <LegacyApp />
       </main>
     </div>
   );

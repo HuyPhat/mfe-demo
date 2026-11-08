@@ -4,10 +4,11 @@
   "workspaces": [
     "host",
     "products",
-    "cart"
+    "cart",
+    "legacy"
   ],
   "scripts": {
-    "dev": "concurrently -n host,products,cart -c blue,green,magenta \"npm run dev -w host\" \"npm run dev -w products\" \"npm run dev -w cart\"",
+    "dev": "concurrently -n host,products,cart,legacy -c blue,green,magenta,yellow \"npm run dev -w host\" \"npm run dev -w products\" \"npm run dev -w cart\" \"npm run dev -w legacy\"",
     "build": "npm run build --workspaces"
   },
   "devDependencies": {
