@@ -1,0 +1,16 @@
+{
+  "name": "mfe-demo",
+  "private": true,
+  "workspaces": [
+    "host",
+    "products",
+    "cart"
+  ],
+  "scripts": {
+    "dev": "concurrently -n host,products,cart -c blue,green,magenta \"npm run dev -w host\" \"npm run dev -w products\" \"npm run dev -w cart\"",
+    "build": "npm run build --workspaces"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.7"
+  }
+}
