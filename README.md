@@ -126,8 +126,8 @@ Cách *cơ bản* là ghi cứng URL vào config của host: `remotes: { product
 
 Cách *nâng cao* dùng trong demo này: URL của remote nằm trong một file JSON và được đọc **lúc runtime**. Ở production, file đó thường được thay bằng một config service hoặc một file trên CDN. Khi đó:
 
-- **Release**: team products upload bản build lên `cdn/products/1.1.0/`, sau đó sửa manifest thành `"products": "https://cdn/products/1.1.0/mf-manifest.json"`.
-- **Rollback**: sửa manifest trỏ về `1.0.0`. Việc này mất vài giây và không cần build lại gì.
+- **Release**: team products upload bản build lên `cdn/products/1.1.0/`, sau đó sửa `remotes.json` của host thành `"products": "https://cdn/products/1.1.0/mf-manifest.json"`.
+- **Rollback**: sửa `remotes.json` trỏ về `1.0.0`. Việc này mất vài giây và không cần build lại gì.
 - **Canary / A-B**: config service trả URL v1.1.0 cho 5% người dùng, v1.0.0 cho số còn lại.
 
 `mf-manifest.json` là định dạng của Module Federation 2.0. Nó chứa danh sách module được expose, các shared lib và version, nên runtime có thể preload hoặc kiểm tra trước khi tải code.
@@ -176,19 +176,216 @@ Mỗi remote tự chạy được một mình (port 3001 hoặc 3002), có mock 
 
 ## Phần 3: Bài lab, tự làm để có kinh nghiệm thật
 
-1. **Deploy độc lập**: đổi `"version"` trong `products/package.json` thành `1.1.0`, rồi sửa text trong `ProductList.tsx`. Restart **chỉ** products (vì version được đọc lúc khởi động), rồi reload host: products đã đổi mà **host không bị build lại**.
-2. **Remote chết**: tắt riêng cart (hoặc sửa port trong `host/public/remotes.json` thành `3999`), rồi reload. Products vẫn chạy, ô cart hiện lỗi.
-3. **Remote crash lúc render**: thêm `throw new Error('boom')` vào `Cart.tsx`. Hãy xem ErrorBoundary bắt lỗi thế nào.
-4. **Lệch version**: trong `cart/rspack.config.mjs`, đặt `requiredVersion: '^18.0.0'` và đọc warning trong console. Sau đó thêm `strictVersion: true` và xem lỗi xảy ra.
-5. **Bỏ singleton**: xoá `singleton: true` khỏi cả 3 app, sau đó xem `__FEDERATION__.__SHARE__` và tab Network. Hãy hiểu vì sao nhiều bản React là nguy hiểm.
-6. **Bỏ bootstrap**: chuyển nội dung `bootstrap.tsx` vào thẳng `index.ts` và xem lỗi eager consumption.
-7. **Mô phỏng CDN có version** (production):
+### Chuẩn bị chung (làm một lần)
 
-   ```bash
-   npm run build
+1. `npm install` ở thư mục gốc.
+2. Mở **3 terminal**, mỗi terminal chạy một app. Chạy riêng để sau này restart được từng app mà không đụng app khác:
+
+   | Terminal | Lệnh | Port |
+   |---|---|---|
+   | 1 | `npm run dev -w host` | 3000 |
+   | 2 | `npm run dev -w products` | 3001 |
+   | 3 | `npm run dev -w cart` | 3002 |
+
+   (`npm run dev` ở gốc chạy cả 4 app trong một terminal, tiện nhưng không restart riêng được. Remote `legacy` ở port 3003 chỉ cần cho lab nâng cao, xem `TODO.md` và mã trong thư mục `legacy/`.)
+3. Mở http://localhost:3000, bấm F12 và mở hai tab: **Console** và **Network** (tick **Disable cache** trong Network).
+4. Remote đã tắt HMR (`hot: false` trong `devServer`). Vì vậy sau khi sửa code của remote, hãy **đợi terminal báo `compiled successfully`**, rồi nhấn **Cmd+R** (Ctrl+R trên Windows) ở trang host để thấy thay đổi.
+5. Mỗi lab có mục **Hoàn tác**. Làm xong thì chạy `git status` để chắc là không còn thay đổi thừa.
+
+> Nếu bạn đang có chỉnh sửa chưa commit mà muốn giữ, lưu lại trước (`git stash` hoặc commit) vì các lệnh hoàn tác có thể xoá chúng.
+
+---
+
+### Lab 1: Deploy độc lập
+
+**Mục tiêu:** thấy rằng sửa và "deploy" một remote không làm host hay remote khác build lại.
+
+**Các bước**
+1. Quan sát trang host: tiêu đề products đang là `... v1.0.0`. Ghi lại.
+2. Trong `products/package.json`, đổi `"version"` thành `1.1.0`.
+3. Trong `products/src/ProductList.tsx`, đổi chữ trong thẻ `<h2>` (ví dụ `Products` thành `Catalog`).
+4. Ở terminal 2 (products): nhấn Ctrl+C rồi chạy lại `npm run dev -w products`. Cần restart vì số version được đọc lúc khởi động.
+5. Đợi dòng `compiled successfully`, rồi nhấn Cmd+R ở trang host.
+
+**Kết quả mong đợi**
+- Tiêu đề thành `Catalog v1.1.0`.
+- Terminal 1 (host) và terminal 3 (cart) **không in thêm dòng compile nào** từ bước 2 trở đi.
+- Tab Network: file `__federation_expose_ProductList.js` đến từ `localhost:3001`; `main.js` đến từ `localhost:3000`.
+
+**Tự kiểm chứng host không đổi (tuỳ chọn)**
+```bash
+curl -s localhost:3000/main.js | shasum
+```
+Chạy trước bước 2 và sau bước 5. Hai chuỗi hash phải giống nhau.
+
+**Hoàn tác:** `git checkout products/package.json products/src/ProductList.tsx`
+
+---
+
+### Lab 2: Remote chết
+
+**Mục tiêu:** thấy một remote không tải được thì chỉ ô của nó báo lỗi, phần còn lại vẫn chạy.
+
+**Các bước**
+1. Ở terminal 3 (cart): nhấn Ctrl+C để tắt cart.
+2. Nhấn Cmd+R ở trang host.
+3. Bấm "Thêm vào giỏ" ở một sản phẩm của products.
+
+**Kết quả mong đợi**
+- Ô cart hiện khung đỏ: `cart/Cart đang lỗi — phần còn lại vẫn chạy`.
+- Products vẫn hiện và bấm được.
+- Tab Network: request tới `localhost:3002/mf-manifest.json` báo đỏ (connection refused).
+
+**Thử thêm: nút "Thử lại"**
+1. Bật lại cart: `npm run dev -w cart`.
+2. Bấm **Thử lại** trong khung đỏ (không reload trang). Ô cart phải hiện lại và Network có request mới tới `:3002`.
+
+**Biến thể:** thay vì tắt cart, sửa port của cart trong `host/public/remotes.json` thành `3999` rồi reload. Kết quả giống nhau.
+
+**Hoàn tác:** bật lại cart; nếu sửa `remotes.json` thì `git checkout host/public/remotes.json`.
+
+---
+
+### Lab 3: Remote crash lúc render
+
+**Mục tiêu:** phân biệt lỗi "không tải được code" (lab 2) với lỗi "tải được nhưng chạy sai".
+
+**Các bước**
+1. Trong `cart/src/Cart.tsx`, thêm dòng này làm dòng đầu tiên trong thân hàm `Cart`:
+   ```ts
+   throw new Error('boom');
    ```
+2. Đợi cart `compiled successfully`, rồi nhấn Cmd+R ở trang host.
 
-   Copy `products/dist` vào `cdn/products/1.0.0/`, sửa code rồi build tiếp ra `cdn/products/1.1.0/`. Serve thư mục `cdn` bằng `npx serve --cors cdn -p 4000`, rồi đổi `remotes.json` qua lại giữa hai version. Đó chính là release và rollback.
+**Kết quả mong đợi**
+- Ô cart hiện khung đỏ với nội dung `boom`. Products vẫn chạy.
+- Tab Network: các file của cart tải về **bình thường** (status 200), khác lab 2.
+- Console: có stack trace trỏ vào `Cart.tsx`.
+- Bấm **Thử lại**: lỗi hiện lại vì bug vẫn còn.
+
+**So sánh với lab 2**
+
+| | Lab 2 | Lab 3 |
+|---|---|---|
+| Network | request tới cart báo đỏ | request tới cart thành công |
+| Nguyên nhân | không lấy được code | code chạy ném lỗi |
+
+**Hoàn tác:** xoá dòng `throw`, hoặc `git checkout cart/src/Cart.tsx`, rồi Cmd+R ở host.
+
+---
+
+### Lab 4: Lệch version thư viện dùng chung
+
+**Mục tiêu:** hiểu `requiredVersion` (cảnh báo) và `strictVersion` (báo lỗi).
+
+**Các bước**
+1. Trong `cart/rspack.config.mjs`, đổi dòng `react` thành:
+   ```js
+   react: { singleton: true, requiredVersion: '^18.0.0' },
+   ```
+2. Restart cart (Ctrl+C rồi `npm run dev -w cart`), rồi Cmd+R ở host. Xem Console.
+3. Thêm `strictVersion: true`:
+   ```js
+   react: { singleton: true, requiredVersion: '^18.0.0', strictVersion: true },
+   ```
+4. Restart cart, Cmd+R ở host.
+
+**Kết quả mong đợi**
+- Sau bước 2, Console có **cảnh báo** dạng `Version 19.3.1 from host of shared singleton module react does not satisfy the requirement of cart which needs ^18.0.0`. Cart vẫn chạy bình thường.
+- Sau bước 4, cùng điều kiện lệch nhưng thành **lỗi**: ô cart hiện khung đỏ, các phần khác vẫn chạy.
+
+**Câu hỏi để suy nghĩ:** trường hợp nào bạn muốn cảnh báo, trường hợp nào muốn lỗi?
+
+**Hoàn tác:** `git checkout cart/rspack.config.mjs`, rồi restart cart.
+
+---
+
+### Lab 5: Bỏ `singleton`
+
+**Mục tiêu:** hiểu `singleton` thực sự làm gì, và khi nào nhiều bản React xuất hiện.
+
+**Cách xem trạng thái React đang dùng chung:** dán đoạn này vào Console của trang host:
+```js
+Object.entries(__FEDERATION__.__SHARE__['host:1.0.0'].default.react)
+  .map(([v, e]) => ({ v, from: e.from, singleton: e.shareConfig.singleton, useIn: e.useIn }))
+```
+
+**Phần A: chỉ bỏ `singleton`**
+1. Ghi lại kết quả đoạn trên khi chưa sửa gì. Phải thấy một mục `19.3.1` với `useIn` gồm `host`, `products`, `cart`.
+2. Trong `cart/rspack.config.mjs`, bỏ `singleton: true` ở cả `react` và `react-dom` (giữ `requiredVersion`).
+3. Restart cart, Cmd+R ở host, chạy lại đoạn Console.
+
+**Kết quả mong đợi (A):** **không có gì thay đổi**. Cart vẫn dùng React 19.3.1 của host, trang vẫn chạy bình thường. Lý do: bản của host thỏa `requiredVersion` nên runtime dùng chung, dù không có `singleton`.
+
+**Phần B (nâng cao): làm cho hai bản React xuất hiện.** Cần cả hai điều kiện: bỏ `singleton` và để version lệch (ví dụ cài `react@18` cho cart rồi đặt `requiredVersion: '^18.0.0'`). Phần này làm thay đổi `package-lock.json`, nên chỉ làm trên một nhánh thử.
+
+**Hoàn tác:** `git checkout cart` (và `git checkout package-lock.json` nếu có cài thêm gì).
+
+**Ý chính:** `singleton` là lưới an toàn cho lúc **lệch** version, không phải thứ tạo ra việc chia sẻ khi mọi thứ đã khớp. Nhiều bản React nguy hiểm vì component của bản này, khi được bản kia render, có thể báo lỗi `Invalid hook call` hoặc mất context.
+
+---
+
+### Lab 6: Bỏ bootstrap
+
+**Mục tiêu:** thấy lỗi khi code import thư viện shared ngay ở lượt chạy đầu tiên, và hiểu vì sao cần `bootstrap`.
+
+**Các bước (làm trên cart)**
+1. Đổi tên `cart/src/index.ts` thành `index.tsx` (vì sắp có JSX):
+   ```bash
+   git mv cart/src/index.ts cart/src/index.tsx
+   ```
+2. Trong `cart/rspack.config.mjs`, đổi `entry: './src/index.ts'` thành `entry: './src/index.tsx'`.
+3. Xoá nội dung `index.tsx` (dòng `import('./bootstrap')`) và dán toàn bộ nội dung của `cart/src/bootstrap.tsx` vào.
+4. Restart cart và mở http://localhost:3002 (mở cart độc lập, không qua host).
+
+**Kết quả mong đợi**
+- Trang trống. Console có lỗi **RUNTIME-006**: `loadShareSync failed! ... check whether an async boundary is implemented` và `Invalid loadShareSync function call ... "sharedPkgName":"react"`. Ba dòng này là cùng một lỗi.
+
+**Vì sao:** React là thư viện shared nên Module Federation phải khởi tạo kho chung (bất đồng bộ) trước. `import('./bootstrap')` tạo ra khoảng chờ đó. Nếu file đầu tiên import React đồng bộ thì kho chung chưa sẵn sàng.
+
+**Hoàn tác:** `git restore --staged --worktree cart`
+
+---
+
+### Lab 7: Mô phỏng CDN có version (production)
+
+**Mục tiêu:** làm lại quy trình release và rollback như ở production, chỉ bằng cách đổi con trỏ trong `remotes.json`.
+
+Mỗi bản build của remote nằm trong một thư mục có version và không bao giờ bị ghi đè. `publicPath: 'auto'` giúp chunk luôn được tải từ đúng thư mục chứa `remoteEntry.js`.
+
+**Các bước**
+1. **Tạo bản 1.0.0 và "upload".**
+   ```bash
+   npm run build -w products
+   mkdir -p cdn/products/1.0.0 && cp -R products/dist/. cdn/products/1.0.0/
+   ```
+2. **Tạo bản 1.1.0.** Đổi `"version"` trong `products/package.json` thành `1.1.0` và sửa chữ trong `ProductList.tsx`, rồi:
+   ```bash
+   npm run build -w products
+   mkdir -p cdn/products/1.1.0 && cp -R products/dist/. cdn/products/1.1.0/
+   ```
+   Phải đổi `version` **trước khi** build, vì số version được chèn vào code lúc build.
+3. **Chạy "CDN".** Mở một terminal mới:
+   ```bash
+   npx serve --cors cdn -p 4000
+   ```
+   `--cors` cần thiết vì host (`:3000`) tải file từ `:4000`.
+4. **Chạy host và cart** (terminal 1 và 3 như phần chuẩn bị). Products không cần chạy dev server nữa; tắt terminal 2.
+5. **Release.** Sửa dòng products trong `host/public/remotes.json`:
+   ```json
+   "products": "http://localhost:4000/products/1.0.0/mf-manifest.json"
+   ```
+   Cmd+R ở host: hiện `v1.0.0`. Đổi thành `.../1.1.0/mf-manifest.json`, Cmd+R: hiện `v1.1.0`.
+6. **Rollback.** Đổi lại `1.0.0`, Cmd+R: hiện `v1.0.0`. Không build lại gì cả.
+
+**Kết quả mong đợi**
+- Tab Network: file của products đến từ `localhost:4000/products/<version>/...`.
+- Terminal host không in thêm dòng compile nào khi bạn đổi version.
+- Build production không có HMR nên không dính lỗi `ChunkVersionError`.
+
+**Dọn dẹp:** xoá thư mục `cdn/` (đừng commit), rồi `git checkout host/public/remotes.json products/package.json products/src/ProductList.tsx`.
+
+> Ở công ty thật, bước "upload" và "đổi con trỏ" do pipeline làm tự động. Xem `TODO.md`.
 
 ---
 
