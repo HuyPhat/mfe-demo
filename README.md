@@ -389,6 +389,90 @@ Mỗi bản build của remote nằm trong một thư mục có version và khô
 
 ---
 
+### Lab 8: Giao tiếp bằng props và URL
+
+**Mục tiêu:** thử hai kênh giao tiếp ít coupling hơn custom event: props từ host truyền xuống, và query string trên URL.
+
+#### Phần A: props từ host xuống remote
+
+`host/src/RemoteComponent.tsx` đã chuyển tiếp mọi props cho remote, nên chỉ cần sửa hai file.
+
+1. Trong `host/src/App.tsx`, truyền prop cho cart:
+   ```tsx
+   <RemoteComponent id="cart/Cart" currency="USD" />
+   ```
+2. Trong `cart/src/Cart.tsx`, nhận prop (có giá trị mặc định) và hiện ra:
+   ```tsx
+   export default function Cart({ currency = 'VND' }: { currency?: 'VND' | 'USD' }) {
+     // ...giữ nguyên phần còn lại...
+     <strong>Tổng: {total.toLocaleString('vi-VN')} {currency}</strong>
+   ```
+   Thay dòng `<strong>Tổng: ...₫</strong>` hiện có bằng dòng trên.
+3. Đợi cart `compiled successfully`, Cmd+R ở host.
+
+**Kết quả mong đợi**
+- Ở host (`:3000`): tổng tiền hiện đơn vị `USD`.
+- Mở cart độc lập (`:3002`): hiện `VND` (giá trị mặc định), vì không ai truyền prop.
+
+**Ý chính:** prop nên là tùy chọn và có giá trị mặc định, để remote chạy được khi host cũ chưa truyền, và khi mở độc lập.
+
+#### Phần B: trạng thái trên URL
+
+1. Trong `products/src/ProductList.tsx`, thêm hook đọc query string và ô tìm kiếm:
+   ```tsx
+   import { useEffect, useState } from 'react';
+
+   const useQueryParam = (key: string) => {
+     const read = () => new URLSearchParams(window.location.search).get(key) ?? '';
+     const [value, setValue] = useState(read);
+     useEffect(() => {
+       const sync = () => setValue(read());
+       window.addEventListener('popstate', sync);      // nút back/forward
+       window.addEventListener('url:changed', sync);   // URL do app trong trang tự đổi
+       return () => {
+         window.removeEventListener('popstate', sync);
+         window.removeEventListener('url:changed', sync);
+       };
+     }, []);
+     return value;
+   };
+   ```
+2. Trong component `ProductList`, lọc danh sách theo `q` và thêm ô nhập:
+   ```tsx
+   const q = useQueryParam('q');
+   const visible = PRODUCTS.filter((p) => p.name.toLowerCase().includes(q.toLowerCase()));
+   const setQ = (next: string) => {
+     const url = new URL(window.location.href);
+     url.searchParams.set('q', next);
+     history.pushState({}, '', url);                   // đổi URL mà không tải lại trang
+     window.dispatchEvent(new Event('url:changed'));   // pushState không tự báo cho app khác
+   };
+   // trong JSX: <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm sản phẩm" />
+   // và đổi PRODUCTS.map(...) thành visible.map(...)
+   ```
+3. Đợi products `compiled successfully`, Cmd+R ở host, gõ chữ vào ô tìm kiếm.
+
+**Kết quả mong đợi**
+- Danh sách sản phẩm lọc theo chữ bạn gõ, và thanh địa chỉ đổi thành `localhost:3000/?q=...`.
+- Tải lại trang (Cmd+R) hoặc mở link đó ở tab mới: bộ lọc vẫn còn.
+- Nút Back của trình duyệt đưa bộ lọc về giá trị trước.
+
+**Ý chính:** `history.pushState` không phát sự kiện nào, nên phải tự bắn `url:changed` để app khác biết. Tên tham số (`q`) cũng là một hợp đồng giữa các app.
+
+**Hoàn tác:** `git checkout host/src/App.tsx cart/src/Cart.tsx products/src/ProductList.tsx`
+
+> Lưu ý trước khi hoàn tác: nếu bạn có chỉnh sửa khác chưa commit trong các file này, hãy lưu lại trước.
+
+**So sánh ba kênh**
+
+| | URL | Props | Custom event |
+|---|---|---|---|
+| Hướng | mọi app đọc/ghi | host → remote | bất kỳ → bất kỳ |
+| Phù hợp với | bộ lọc, trang hiện tại, ID | dữ liệu chung host nắm giữ | hành động (thêm vào giỏ) |
+| Giữ khi tải lại trang | có | không | không |
+
+---
+
 ## Phần 4: Câu hỏi phỏng vấn thường gặp
 
 **Q: Micro-frontend giải quyết vấn đề gì? Khi nào không nên dùng?**
