@@ -1,12 +1,13 @@
 # Micro-frontend demo: React + Rspack + Module Federation 2.0
 
-Một shop nhỏ gồm **3 ứng dụng độc lập**. Mỗi app build, chạy và deploy riêng, rồi được ghép lại thành một trang khi chạy trên trình duyệt (runtime).
+Một shop nhỏ gồm **4 ứng dụng độc lập**. Mỗi app build, chạy và deploy riêng, rồi được ghép lại thành một trang khi chạy trên trình duyệt (runtime).
 
 | App        | Port | Vai trò                     | Team giả định |
 |------------|------|-----------------------------|---------------|
 | `host`     | 3000 | Shell: layout, header, nạp các remote | Platform team |
 | `products` | 3001 | Remote: danh sách sản phẩm   | Catalog team  |
 | `cart`     | 3002 | Remote: giỏ hàng             | Checkout team |
+| `legacy`   | 3003 | Remote: app cũ chạy **React 17**, tự mount vào root riêng | Legacy team |
 
 ```bash
 npm install
@@ -16,9 +17,11 @@ npm install
 npm run dev
 ```
 
-Mở http://localhost:3000. Có thể mở riêng từng remote: http://localhost:3001 và http://localhost:3002.
+Mở http://localhost:3000. Có thể mở riêng từng remote: http://localhost:3001, http://localhost:3002 và http://localhost:3003.
 
-Phiên bản dùng: Rspack 2.3, `@module-federation/enhanced` 2.9 (Module Federation 2.0), React 19, TypeScript 7.
+Phiên bản dùng: Rspack 2.3, `@module-federation/enhanced` 2.9 (Module Federation 2.0), React 19 (riêng `legacy` dùng React 17.0.2), TypeScript 7.
+
+Các việc cải tiến sau này được ghi trong [TODO.md](TODO.md).
 
 ---
 
@@ -55,13 +58,16 @@ Vấn đề nó giải quyết: khi có 5 đến 10 team cùng sửa một monol
  │ fetch /remotes.json → registerRemotes()             │
  │                                                     │
  │  loadRemote('products/ProductList')                 │
- │        │                       loadRemote('cart/Cart')
- │        ▼                               ▼            │
- │  :3001/mf-manifest.json         :3002/mf-manifest.json
+ │        │       loadRemote('cart/Cart')              │
+ │        │               │    loadRemote('legacy/mount')
+ │        ▼               ▼               ▼            │
+ │  :3001/mf-manifest  :3002/mf-manifest  :3003/mf-manifest
  │                                                     │
- │  share scope: react@19.3.1 (từ host, dùng chung) ◄──┤
+ │  share scope: react@19.3.1 (từ host) ◄── products, cart dùng chung
+ │  legacy: react@17.0.2 riêng, tự mount vào <div>     │
  │                                                     │
  │  products ──CustomEvent 'cart:add'──► cart          │
+ │  legacy   ──CustomEvent 'cart:add'──► cart          │
  │  cart ──CustomEvent 'cart:changed'──► host header   │
  └─────────────────────────────────────────────────────┘
 ```
@@ -74,7 +80,7 @@ Vấn đề nó giải quyết: khi có 5 đến 10 team cùng sửa một monol
 
 Mỗi thư mục là một **npm workspace** riêng, có `package.json`, `rspack.config.mjs` và `version` riêng. Ở công ty thật, mỗi thư mục thường là **một repo riêng**. Monorepo ở đây chỉ để bạn chạy demo cho tiện.
 
-Ba file `rspack.config.mjs` gần như giống nhau, và đó là **cố ý**. Nếu tách ra một file config dùng chung, các app sẽ bị ràng buộc với nhau, mất đi tính độc lập.
+Các file `rspack.config.mjs` của 4 app gần như giống nhau, và đó là **cố ý**. Nếu tách ra một file config dùng chung, các app sẽ bị ràng buộc với nhau, mất đi tính độc lập.
 
 ### Bước 2: Expose một remote ([products/rspack.config.mjs](products/rspack.config.mjs))
 
@@ -89,8 +95,9 @@ new ModuleFederationPlugin({
 
 - `exposes` là **public API** của micro-frontend này. Chỉ những gì được expose mới được phép dùng từ bên ngoài. Hãy coi nó như API của backend: đổi tên hay xoá thì là **breaking change**.
 - `output.publicPath: 'auto'`: các chunk được tải theo đường dẫn của nơi đang host `remoteEntry`. Nhờ vậy bạn deploy lên CDN ở path nào cũng chạy được.
-- `output.uniqueName`: tránh đụng tên biến global khi nhiều app cùng nằm trên một trang.
+- `output.uniqueName`: tránh đụng tên biến global của bộ máy tải chunk khi nhiều app cùng nằm trên một trang. Khác với `name` của `ModuleFederationPlugin`: đó là **tên app** mà host và các remote khác dùng để gọi (`loadRemote('products/...')`, trường `from` trong share scope). Cả hai đều phải duy nhất giữa các app; demo đặt chúng giống nhau cho dễ nhớ.
 - `Access-Control-Allow-Origin: *` trong devServer: host ở `:3000` tải file từ `:3001`, tức là khác origin, nên cần CORS.
+- `hot: false` trong devServer của các remote: remote chạy bên trong host nên HMR của riêng nó không có tác dụng, mà còn gây lỗi `ChunkVersionError` ("Chunk is from another build") sau mỗi lần rebuild. Hệ quả: sửa code remote xong phải **reload host thủ công**.
 
 ### Bước 3: Bootstrap pattern ([*/src/index.ts](host/src/index.ts))
 
@@ -98,7 +105,7 @@ new ModuleFederationPlugin({
 import('./bootstrap');
 ```
 
-Vì sao không import React ngay trong `index.ts`? Module Federation cần **một điểm bất đồng bộ** (async boundary) để kịp tải remote và thương lượng xem dùng bản React nào **trước khi** code của bạn chạy. Nếu import React đồng bộ ngay từ đầu, bạn sẽ gặp lỗi kiểu `Shared module is not available for eager consumption`. Đây là câu hỏi phỏng vấn kinh điển.
+Vì sao không import React ngay trong `index.ts`? Module Federation cần **một điểm bất đồng bộ** (async boundary) để kịp tải remote và thương lượng xem dùng bản React nào **trước khi** code của bạn chạy. Nếu import React đồng bộ ngay từ đầu, bạn sẽ gặp lỗi `RUNTIME-006` (`loadShareSync failed! ... check whether an async boundary is implemented`). Bài lab 6 cho bạn thử lỗi này. Đây là câu hỏi phỏng vấn kinh điển.
 
 ### Bước 4: Shared dependencies và versioning thư viện
 
@@ -108,10 +115,11 @@ react: { singleton: true, requiredVersion: '^19.3.1' }
 
 - `singleton: true`: cả trang chỉ có **một** bản React. Nếu có hai bản React, hooks sẽ hỏng (`Invalid hook call`), context không truyền qua được, và người dùng phải tải code gấp đôi.
 - `requiredVersion`: dải semver mà app chấp nhận. Nếu bản được chọn không thoả dải này, console sẽ hiện warning.
+- `singleton: false` (dùng cho `legacy`): app giữ bản thư viện riêng khi bản chung không thoả `requiredVersion` của nó. Nếu bản chung vẫn thoả thì runtime vẫn dùng chung, dù không có `singleton`.
 - `strictVersion: true` (không bật trong demo): nếu lệch version thì **ném lỗi** thay vì chỉ cảnh báo.
 - `eager: true`: đưa thư viện vào bundle chính, không tải async. Chỉ dùng khi thật sự cần, vì nó làm bundle to ra.
 
-Mình đã kiểm tra trong browser rằng `react@19.3.1` được tải **một lần từ host**, và `useIn: [host, products, cart]`. Bạn có thể tự xem bằng cách gõ vào DevTools console: `__FEDERATION__.__SHARE__`.
+Mình đã kiểm tra trong browser: `react@19.3.1` được tải **một lần từ host**, với `useIn: [host, products, cart]`. Ngoài ra còn có `react@17.0.2` do `legacy` đăng ký (`singleton: false`, `useIn: [legacy]`), chỉ riêng `legacy` dùng bản này (xem Bước 10). Bạn có thể tự xem bằng cách gõ vào DevTools console: `__FEDERATION__.__SHARE__`.
 
 **Thư viện nào nên share?** Những thư viện có state toàn cục hoặc bắt buộc chỉ có một bản: react, react-dom, router, design system. **Không nên** share mọi thứ, vì càng share nhiều thì càng phải phối hợp version giữa các team nhiều.
 
@@ -137,7 +145,8 @@ Cách *nâng cao* dùng trong demo này: URL của remote nằm trong một file
 Remote là code của team khác, được deploy lúc nào không biết, nên **phải coi nó là không đáng tin**:
 
 - `ErrorBoundary`: remote ném lỗi lúc render, hoặc tải `remoteEntry` thất bại (404, CDN chết), thì chỉ ô đó hiện fallback, phần còn lại vẫn chạy. Mình đã thử trỏ `cart` sang port chết: products vẫn hoạt động, ô cart hiện lỗi `RUNTIME-003 Failed to get manifest` cùng nút "Thử lại".
-- `Suspense` cùng `lazy`: remote chỉ được tải khi cần. Có `cache` để mỗi remote chỉ tạo `lazy()` một lần; nếu không, mỗi lần render React sẽ mount lại component.
+- `Suspense` cùng `lazy`: remote chỉ được tải khi cần. Có `cache` (biến cấp module) để mỗi remote chỉ tạo `lazy()` một lần; nếu không, mỗi lần render React sẽ mount lại component.
+- **Nút "Thử lại"**: React giữ kết quả bị reject của `lazy()` mãi mãi, nên nút này phải xoá entry trong `cache` (`cache.delete(id)`) thì lần sau mới gọi lại `loadRemote`. Vì vậy `getLazy` được gọi trong component con `Remote` nằm **bên trong** `ErrorBoundary`: khi boundary reset, con này mount lại và đọc lại `cache`. Nếu gọi `getLazy` ở component cha thì cây element vẫn giữ `lazy()` cũ và nút không có tác dụng.
 - **CSS isolation**: `products` và `cart` đều có class `.box` và `.title`, nhưng nhờ **CSS Modules** (`type: 'css/module'`) tên class được hash nên không đè lên nhau. Các cách khác: prefix theo tên app, CSS-in-JS, Shadow DOM (cô lập mạnh nhất nhưng khó làm theme).
 - **Global isolation**: không ghi lung tung lên `window`, và `uniqueName` phải khác nhau giữa các app.
 
@@ -147,7 +156,7 @@ Products **không import** Cart. Hai bên chỉ nói chuyện qua **contract** l
 
 | Event          | Ai gửi   | Ai nghe     | `detail`              |
 |----------------|----------|-------------|-----------------------|
-| `cart:add`     | products | cart        | `{ id, name, price }` |
+| `cart:add`     | products, legacy | cart | `{ id, name, price }` |
 | `cart:changed` | cart     | host header | `{ count }`           |
 
 Vì sao không dùng chung một Redux store? Một store chung buộc mọi team phải dùng chung cấu trúc state và chung version thư viện. Như vậy là **coupling**, và các team lại phải release cùng lúc, mất đi lợi ích chính của micro-frontend. Nguyên tắc là **mỗi micro-frontend tự quản lý state của mình và chỉ công bố event hoặc props**.
@@ -156,7 +165,7 @@ Các kênh giao tiếp, xếp từ ít coupling đến nhiều coupling:
 
 1. URL / query string: mọi app đều đọc được, và người dùng có thể bookmark.
 2. Props từ host truyền xuống: `<Remote userId={...} />`.
-3. Custom events / pub-sub: cách dùng trong demo này.
+3. Custom events / pub-sub: cách dùng trong demo này (xem bài lab 8 để thử cả props và URL).
 4. Shared store được expose như một remote module: mạnh nhưng coupling nhiều nhất.
 
 Contract chính là **API có version**. Nếu cần đổi cấu trúc `detail`, hãy thêm event mới (`cart:add.v2`) và giữ event cũ một thời gian, đừng sửa thẳng vào event cũ.
@@ -171,6 +180,21 @@ Mỗi remote tự chạy được một mình (port 3001 hoặc 3002), có mock 
 - **Contract bằng type**: mỗi app tự khai báo phần event nó dùng bằng cách mở rộng `WindowEventMap`. Nhờ vậy `addEventListener('cart:add', e => e.detail.price)` có type đầy đủ, và gõ sai tên event sẽ báo lỗi. Các file `events.d.ts` cố ý **lặp lại** giữa app, không gom vào package chung, vì package chung sẽ buộc các team cùng phiên bản. Muốn chắc chắn khớp nhau, dùng contract test hoặc e2e.
 - `loadRemote('cart/Cart')` trả về kiểu `unknown` vì host không biết remote export gì. Trong `RemoteComponent.tsx` ta ép kiểu thủ công. Cách chuẩn là bật `dts` của Module Federation: remote sinh `.d.ts` cho các module expose, host tải về để có type thật.
 - `env.d.ts` khai báo `__APP_VERSION__` (do `DefinePlugin` chèn vào) và kiểu cho `*.module.css`.
+
+### Bước 10: Remote dùng React khác version ([legacy/](legacy/))
+
+`legacy` mô phỏng một app cũ chưa nâng lên React 19. Nó không expose component mà expose hai hàm (`./mount`):
+
+```tsx
+// legacy/src/mount.tsx
+export const mount = (el: HTMLElement) => ReactDOM.render(<Legacy />, el);   // React 17 chưa có createRoot
+export const unmount = (el: HTMLElement) => ReactDOM.unmountComponentAtNode(el);
+```
+
+- [legacy/rspack.config.mjs](legacy/rspack.config.mjs) đặt `singleton: false` cho `react` và `react-dom`. Bản React 19 của host không thoả `^17`, nên runtime dùng bản 17.0.2 đóng gói trong `legacy`.
+- Host **không render** component của legacy. [host/src/LegacyApp.tsx](host/src/LegacyApp.tsx) cấp một thẻ `<div>`, gọi `loadRemote('legacy/mount')` trong `useEffect` rồi `mount(div)`; khi component bị gỡ thì gọi `unmount`. Nhờ vậy hai bản React nằm ở hai cây riêng và không đụng hook của nhau.
+- Giao tiếp chỉ qua `window`: legacy bắn `cart:add` và cart (React 19) nhận được bình thường.
+- Cái giá: tải thêm một bản React, và không chia sẻ được context hay state của React. Chỉ nên là giải pháp tạm trong lúc nâng cấp app cũ.
 
 ---
 
@@ -187,7 +211,7 @@ Mỗi remote tự chạy được một mình (port 3001 hoặc 3002), có mock 
    | 2 | `npm run dev -w products` | 3001 |
    | 3 | `npm run dev -w cart` | 3002 |
 
-   (`npm run dev` ở gốc chạy cả 4 app trong một terminal, tiện nhưng không restart riêng được. Remote `legacy` ở port 3003 chỉ cần cho lab nâng cao, xem `TODO.md` và mã trong thư mục `legacy/`.)
+   (`npm run dev` ở gốc chạy cả 4 app trong một terminal, tiện nhưng không restart riêng được. Nếu không chạy `legacy` (port 3003), host vẫn hoạt động nhưng ô "legacy" báo lỗi tải, bạn bỏ qua được. Xem Bước 10 về `legacy`.)
 3. Mở http://localhost:3000, bấm F12 và mở hai tab: **Console** và **Network** (tick **Disable cache** trong Network).
 4. Remote đã tắt HMR (`hot: false` trong `devServer`). Vì vậy sau khi sửa code của remote, hãy **đợi terminal báo `compiled successfully`**, rồi nhấn **Cmd+R** (Ctrl+R trên Windows) ở trang host để thấy thay đổi.
 5. Mỗi lab có mục **Hoàn tác**. Làm xong thì chạy `git status` để chắc là không còn thay đổi thừa.
@@ -201,14 +225,14 @@ Mỗi remote tự chạy được một mình (port 3001 hoặc 3002), có mock 
 **Mục tiêu:** thấy rằng sửa và "deploy" một remote không làm host hay remote khác build lại.
 
 **Các bước**
-1. Quan sát trang host: tiêu đề products đang là `... v1.0.0`. Ghi lại.
-2. Trong `products/package.json`, đổi `"version"` thành `1.1.0`.
-3. Trong `products/src/ProductList.tsx`, đổi chữ trong thẻ `<h2>` (ví dụ `Products` thành `Catalog`).
+1. Quan sát trang host: tiêu đề products đang hiện chữ và số version hiện tại (đọc từ `products/package.json`, ví dụ `New Products v1.1.0`). Ghi lại.
+2. Trong `products/package.json`, đổi `"version"` sang số kế tiếp (ví dụ `1.2.0`).
+3. Trong `products/src/ProductList.tsx`, đổi chữ trong thẻ `<h2>` (ví dụ thành `Catalog`).
 4. Ở terminal 2 (products): nhấn Ctrl+C rồi chạy lại `npm run dev -w products`. Cần restart vì số version được đọc lúc khởi động.
 5. Đợi dòng `compiled successfully`, rồi nhấn Cmd+R ở trang host.
 
 **Kết quả mong đợi**
-- Tiêu đề thành `Catalog v1.1.0`.
+- Tiêu đề thành chữ mới kèm số version mới (ví dụ `Catalog v1.2.0`).
 - Terminal 1 (host) và terminal 3 (cart) **không in thêm dòng compile nào** từ bước 2 trở đi.
 - Tab Network: file `__federation_expose_ProductList.js` đến từ `localhost:3001`; `main.js` đến từ `localhost:3000`.
 
@@ -354,15 +378,17 @@ Object.entries(__FEDERATION__.__SHARE__['host:1.0.0'].default.react)
 Mỗi bản build của remote nằm trong một thư mục có version và không bao giờ bị ghi đè. `publicPath: 'auto'` giúp chunk luôn được tải từ đúng thư mục chứa `remoteEntry.js`.
 
 **Các bước**
-1. **Tạo bản 1.0.0 và "upload".**
-   ```bash
-   npm run build -w products
-   mkdir -p cdn/products/1.0.0 && cp -R products/dist/. cdn/products/1.0.0/
-   ```
-2. **Tạo bản 1.1.0.** Đổi `"version"` trong `products/package.json` thành `1.1.0` và sửa chữ trong `ProductList.tsx`, rồi:
+Ví dụ dưới đây giả sử `products/package.json` đang là `1.1.0`. Nếu số version của bạn khác, thay các số cho khớp.
+
+1. **Build bản hiện tại (1.1.0) và "upload".**
    ```bash
    npm run build -w products
    mkdir -p cdn/products/1.1.0 && cp -R products/dist/. cdn/products/1.1.0/
+   ```
+2. **Tạo bản 1.2.0.** Đổi `"version"` trong `products/package.json` thành `1.2.0` và sửa chữ trong `ProductList.tsx`, rồi:
+   ```bash
+   npm run build -w products
+   mkdir -p cdn/products/1.2.0 && cp -R products/dist/. cdn/products/1.2.0/
    ```
    Phải đổi `version` **trước khi** build, vì số version được chèn vào code lúc build.
 3. **Chạy "CDN".** Mở một terminal mới:
@@ -373,17 +399,17 @@ Mỗi bản build của remote nằm trong một thư mục có version và khô
 4. **Chạy host và cart** (terminal 1 và 3 như phần chuẩn bị). Products không cần chạy dev server nữa; tắt terminal 2.
 5. **Release.** Sửa dòng products trong `host/public/remotes.json`:
    ```json
-   "products": "http://localhost:4000/products/1.0.0/mf-manifest.json"
+   "products": "http://localhost:4000/products/1.1.0/mf-manifest.json"
    ```
-   Cmd+R ở host: hiện `v1.0.0`. Đổi thành `.../1.1.0/mf-manifest.json`, Cmd+R: hiện `v1.1.0`.
-6. **Rollback.** Đổi lại `1.0.0`, Cmd+R: hiện `v1.0.0`. Không build lại gì cả.
+   Cmd+R ở host: hiện `v1.1.0`. Đổi thành `.../1.2.0/mf-manifest.json`, Cmd+R: hiện `v1.2.0`.
+6. **Rollback.** Đổi lại `1.1.0`, Cmd+R: hiện `v1.1.0`. Không build lại gì cả.
 
 **Kết quả mong đợi**
 - Tab Network: file của products đến từ `localhost:4000/products/<version>/...`.
 - Terminal host không in thêm dòng compile nào khi bạn đổi version.
 - Build production không có HMR nên không dính lỗi `ChunkVersionError`.
 
-**Dọn dẹp:** xoá thư mục `cdn/` (đừng commit), rồi `git checkout host/public/remotes.json products/package.json products/src/ProductList.tsx`.
+**Dọn dẹp:** xoá thư mục `cdn/` (đã nằm trong `.gitignore`), rồi `git checkout host/public/remotes.json products/package.json products/src/ProductList.tsx`.
 
 > Ở công ty thật, bước "upload" và "đổi con trỏ" do pipeline làm tự động. Xem `TODO.md`.
 
@@ -485,10 +511,10 @@ npm package được ghép lúc build: muốn update thì consumer phải bump v
 Khai báo `shared` với `singleton: true` cùng `requiredVersion`. Bootstrap pattern cho phép runtime thương lượng version trước khi code chạy.
 
 **Q: Hai team cần hai major version khác nhau của cùng một thư viện thì sao?**
-Nếu thư viện không bắt buộc singleton (ví dụ lodash), hãy bỏ `singleton`. Mỗi app sẽ lấy bản thoả `requiredVersion` của mình, chấp nhận tải 2 bản. Nếu là React thì phải thống nhất major version trong toàn tổ chức, và nâng cấp bằng cách cho host hỗ trợ cả hai bản trong giai đoạn chuyển tiếp.
+Nếu thư viện không bắt buộc singleton (ví dụ lodash), hãy bỏ `singleton`. Mỗi app sẽ lấy bản thoả `requiredVersion` của mình, chấp nhận tải 2 bản. Nếu là React thì tốt nhất là thống nhất major version trong toàn tổ chức. Nếu có một app cũ chưa nâng được (như remote `legacy` chạy React 17 trong demo này), hãy cho app đó mang React riêng (`singleton: false`) và tự mount vào một `<div>` do host cấp, chỉ giao tiếp qua event hoặc props (xem Bước 10). Đây chỉ là giải pháp tạm trong lúc chuyển tiếp.
 
 **Q: Versioning remote thế nào để rollback nhanh?**
-Mỗi bản build được upload lên CDN theo path bất biến (`/products/1.2.0/`). Host đọc URL từ manifest hoặc config service lúc runtime (dynamic remotes). Rollback chỉ là sửa một dòng config. Nhớ đặt cache: `remoteEntry`/manifest cache ngắn hoặc không cache, các chunk có hash thì cache lâu dài.
+Mỗi bản build được upload lên CDN theo path bất biến (`/products/1.2.0/`). Host đọc URL từ `remotes.json` hoặc config service lúc runtime (dynamic remotes). Rollback chỉ là sửa một dòng config. Nhớ đặt cache: `remoteEntry`/manifest cache ngắn hoặc không cache, các chunk có hash thì cache lâu dài.
 
 **Q: Remote chết hoặc lỗi thì sao?**
 Dùng ErrorBoundary và Suspense fallback cho từng remote, có retry, và có thể thêm runtime plugin `errorLoadRemote` để chuyển sang URL dự phòng. Remote lỗi không được phép làm sập cả trang.
@@ -517,4 +543,5 @@ Module Federation 2.0 có tính năng `dts`: remote tự sinh file `.d.ts` của
 - **Routing** (react-router chia route giữa host và remote): thêm khi có nhiều trang.
 - **`dts` (tự sinh type của remote)**: demo đã dùng TS nhưng tắt `dts: false` cho gọn, nên `loadRemote` phải ép kiểu thủ công. Bật `dts` khi remote và host ở repo khác nhau.
 - **Runtime plugin fallback/retry** (`errorLoadRemote`, `@module-federation/retry-plugin`): thêm khi đã có CDN dự phòng.
+- **Config service và canary/A-B**: `remotes.json` vẫn là file tĩnh viết tay, nên release và rollback phải sửa tay. Chi tiết hướng làm nằm trong [TODO.md](TODO.md).
 - **Shared design system** (expose dưới dạng remote hoặc shared singleton): thêm khi có từ 2 app trở lên cần cùng một UI kit.
