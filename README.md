@@ -1,6 +1,6 @@
 # Micro-frontend demo: React + Rspack + Module Federation 2.0
 
-Một shop nhỏ gồm **4 ứng dụng độc lập**. Mỗi app build, chạy và deploy riêng, rồi được ghép lại thành một trang khi chạy trên trình duyệt (runtime).
+Một shop nhỏ gồm **5 ứng dụng độc lập**. Mỗi app build, chạy và deploy riêng, rồi được ghép lại thành một trang khi chạy trên trình duyệt (runtime).
 
 | App        | Port | Vai trò                     | Team giả định |
 |------------|------|-----------------------------|---------------|
@@ -8,8 +8,9 @@ Một shop nhỏ gồm **4 ứng dụng độc lập**. Mỗi app build, chạy 
 | `products` | 3001 | Remote: danh sách sản phẩm   | Catalog team  |
 | `cart`     | 3002 | Remote: giỏ hàng             | Checkout team |
 | `legacy`   | 3003 | Remote: app cũ chạy **React 17**, tự mount vào root riêng | Legacy team |
+| `design-system` | 3004 | Remote: design system (expose `Badge`), cập nhật không cần build lại các app | Design team |
 
-Ngoài ra, thư mục `ui/` là package design system dùng chung `@shop/ui` (không phải app, không có port), xem Bước 11.
+Ngoài ra, thư mục `ui/` là package design system dùng chung `@shop/ui` (không phải app, không có port), xem Bước 11. Bước 12 là cách thứ hai: design system dưới dạng remote (`design-system/`).
 
 ```bash
 npm install
@@ -82,7 +83,7 @@ Vấn đề nó giải quyết: khi có 5 đến 10 team cùng sửa một monol
 
 Mỗi thư mục là một **npm workspace** riêng, có `package.json`, `rspack.config.mjs` và `version` riêng. Ở công ty thật, mỗi thư mục thường là **một repo riêng**. Monorepo ở đây chỉ để bạn chạy demo cho tiện.
 
-Các file `rspack.config.mjs` của 4 app gần như giống nhau, và đó là **cố ý**. Nếu tách ra một file config dùng chung, các app sẽ bị ràng buộc với nhau, mất đi tính độc lập.
+Các file `rspack.config.mjs` của 5 app gần như giống nhau, và đó là **cố ý**. Nếu tách ra một file config dùng chung, các app sẽ bị ràng buộc với nhau, mất đi tính độc lập.
 
 ### Bước 2: Expose một remote ([products/rspack.config.mjs](products/rspack.config.mjs))
 
@@ -220,7 +221,28 @@ Demo chọn cách **shared singleton**: `@shop/ui` được khai báo trong `sha
 | Coupling | mọi app phải chấp nhận cùng dải version | các app phải biết URL của remote `ui` |
 | Độ phức tạp | thấp, không thêm server | thêm một app và một URL phải quản lý |
 
-Chọn shared singleton khi design system đổi ít và bạn muốn đơn giản; chọn remote riêng khi muốn cập nhật giao diện không cần build lại các app.
+Chọn shared singleton khi design system đổi ít và bạn muốn đơn giản; chọn remote riêng khi muốn cập nhật giao diện không cần build lại các app. Demo có cả hai: xem Bước 12 cho cách remote riêng.
+
+### Bước 12: Design system dưới dạng remote riêng ([design-system/](design-system/))
+
+Cách thứ hai (`@shop/ui` ở Bước 11 vẫn giữ nguyên): design system là **một app riêng**, expose component qua Module Federation và được các app tải lúc chạy.
+
+- [design-system/rspack.config.mjs](design-system/rspack.config.mjs): `name: 'ds'`, port 3004, `exposes: { './Badge': './src/Badge.tsx' }`. Đây là API công khai của design system.
+- **Host** nạp nó như mọi remote khác: thêm `"ds"` vào `host/public/remotes.json` rồi dùng `<RemoteComponent id="ds/Badge">...</RemoteComponent>` ở header.
+- **products** và **cart** dùng qua [products/src/ds.tsx](products/src/ds.tsx) và [cart/src/ds.tsx](cart/src/ds.tsx): `registerRemotes` (đăng ký URL của ds) rồi `loadRemote('ds/Badge')` bọc trong `lazy`. Nếu ds không tải được thì trả về component rỗng, nên ô products hoặc cart vẫn chạy, chỉ mất badge.
+
+**Vì sao đăng ký lúc chạy, không dùng `remotes` trong `rspack.config.mjs`?** Mình đã thử cách khai báo tĩnh (`remotes: { ds: 'ds@http://localhost:3004/mf-manifest.json' }`). Khi ds chết, products và cart **báo lỗi toàn bộ** (`RUNTIME-015: Remote container initialization failed`), vì container của chúng tải manifest của ds ngay lúc khởi tạo và `.catch` ở chỗ `import()` không kịp cứu. Đăng ký lúc chạy thì việc tải ds chỉ xảy ra khi component Badge render, nên lỗi được chặn được.
+
+**Cập nhật không cần build lại:** sửa `design-system/src/Badge.module.css` thì chỉ ds compile lại (log `[ds]`); host, products, cart không compile gì thêm mà cả ba badge đổi giao diện sau khi reload. Bài lab 10 cho bạn thử.
+
+| | `@shop/ui` (shared singleton) | `design-system` (remote riêng) |
+|---|---|---|
+| Đổi giao diện | build lại app cung cấp (host) | chỉ deploy ds |
+| Khi design system chết | không áp dụng (code nằm trong bundle) | phải xử lý fallback ở từng app (như `ds.tsx`) |
+| Version | mọi app phải chấp nhận cùng dải version | app luôn nhận bản ds đang chạy, nên đổi API của ds là breaking change cho tất cả |
+| Phức tạp vận hành | thấp | thêm một app và một URL phải quản lý |
+
+Giới hạn của demo: URL của ds (`http://localhost:3004/...`) đang ghi trong `ds.tsx` của từng app. Ở production, nó nên lấy từ cùng nguồn cấu hình với `remotes.json` (xem `TODO.md`).
 
 ---
 
@@ -237,7 +259,7 @@ Chọn shared singleton khi design system đổi ít và bạn muốn đơn gi�
    | 2 | `npm run dev -w products` | 3001 |
    | 3 | `npm run dev -w cart` | 3002 |
 
-   (`npm run dev` ở gốc chạy cả 4 app trong một terminal, tiện nhưng không restart riêng được. Nếu không chạy `legacy` (port 3003), host vẫn hoạt động nhưng ô "legacy" báo lỗi tải, bạn bỏ qua được. Xem Bước 10 về `legacy`.)
+   (`npm run dev` ở gốc chạy cả 5 app trong một terminal, tiện nhưng không restart riêng được. Nếu không chạy `legacy` (port 3003), host vẫn hoạt động nhưng ô "legacy" báo lỗi tải, bạn bỏ qua được. Xem Bước 10 về `legacy`. Tương tự, nếu không chạy `design-system` (port 3004) thì badge trên header host báo lỗi, products và cart chỉ mất badge; bỏ qua được.)
 3. Mở http://localhost:3000, bấm F12 và mở hai tab: **Console** và **Network** (tick **Disable cache** trong Network).
 4. Remote đã tắt HMR (`hot: false` trong `devServer`). Vì vậy sau khi sửa code của remote, hãy **đợi terminal báo `compiled successfully`**, rồi nhấn **Cmd+R** (Ctrl+R trên Windows) ở trang host để thấy thay đổi.
 5. Mỗi lab có mục **Hoàn tác**. Làm xong thì chạy `git status` để chắc là không còn thay đổi thừa.
@@ -530,7 +552,7 @@ Ví dụ dưới đây giả sử `products/package.json` đang là `1.1.0`. N�
 **Mục tiêu:** thấy một thay đổi ở `@shop/ui` tác động tới nhiều app cùng lúc, và hiểu vì sao app cung cấp phải build lại.
 
 **Các bước**
-1. Chạy cả 4 app (`npm run dev`) và mở http://localhost:3000. Ghi lại hình dạng khung (viền nét đứt, bo góc 8px).
+1. Chạy cả 5 app (`npm run dev`) và mở http://localhost:3000. Ghi lại hình dạng khung (viền nét đứt, bo góc 8px).
 2. Trong `ui/src/Panel.module.css`, đổi `border: 2px dashed` thành `border: 2px solid` và `border-radius: 8px` thành `20px`.
 3. Đợi terminal host báo `compiled successfully`, rồi nhấn Cmd+R ở trang host.
 4. Dán đoạn này vào Console để xem ai cung cấp và ai dùng:
@@ -548,6 +570,36 @@ Ví dụ dưới đây giả sử `products/package.json` đang là `1.1.0`. N�
 **Hoàn tác:** `git checkout ui/src/Panel.module.css host/src/App.tsx`
 
 > Các kết quả mong đợi ở lab này mình suy ra từ việc đã quan sát trong demo, chưa chạy riêng từng bước.
+
+---
+
+### Lab 10: Cập nhật design system dạng remote mà không build lại các app
+
+**Mục tiêu:** thấy một thay đổi ở `design-system` đến được host, products và cart mà ba app đó không compile lại, và thấy điều gì xảy ra khi ds chết.
+
+**Chuẩn bị:** chạy cả 5 app bằng `npm run dev`. Mở http://localhost:3000: có ba badge xanh dương (header host, "3 sản phẩm" ở products, "0 món" ở cart).
+
+**Phần A: đổi giao diện**
+1. Trong terminal đang chạy `npm run dev`, ghi lại số dòng `compiled` của từng app (log có tiền tố `[host]`, `[products]`, `[cart]`, `[ds]`).
+2. Trong `design-system/src/Badge.module.css`, đổi màu: `background: #e6f4ff; color: #0958d9;` thành `background: #fff1b8; color: #ad6800;`.
+3. Đợi dòng `[ds] ... compiled successfully` mới, rồi nhấn Cmd+R ở trang host.
+
+**Kết quả mong đợi (A)**
+- Cả ba badge đổi sang màu vàng.
+- Chỉ `[ds]` có thêm dòng compile; `[host]`, `[products]`, `[cart]` không có thêm dòng nào.
+
+**Phần B: ds chết**
+1. Tắt riêng ds (Ctrl+C ở terminal riêng của ds, hoặc tìm tiến trình đang nghe port 3004 rồi dừng nó).
+2. Nhấn Cmd+R ở trang host.
+
+**Kết quả mong đợi (B)**
+- Products, cart và legacy vẫn hiển thị bình thường, chỉ mất badge của chúng.
+- Header của host hiện khung lỗi `ds/Badge đang lỗi`, vì host dùng `RemoteComponent` (có ErrorBoundary).
+- Bật lại ds rồi reload host: ba badge trở lại.
+
+**Thử thêm:** trong `products/rspack.config.mjs`, thêm `remotes: { ds: 'ds@http://localhost:3004/mf-manifest.json' }` vào `ModuleFederationPlugin` rồi tắt ds. Lần này cả ô products báo lỗi `RUNTIME-015`. Đây là lý do `ds.tsx` đăng ký lúc chạy.
+
+**Hoàn tác:** `git checkout design-system/src/Badge.module.css products/rspack.config.mjs`
 
 ---
 
@@ -596,4 +648,4 @@ Module Federation 2.0 có tính năng `dts`: remote tự sinh file `.d.ts` của
 - **`dts` (tự sinh type của remote)**: demo đã dùng TS nhưng tắt `dts: false` cho gọn, nên `loadRemote` phải ép kiểu thủ công. Bật `dts` khi remote và host ở repo khác nhau.
 - **Runtime plugin fallback/retry** (`errorLoadRemote`, `@module-federation/retry-plugin`): thêm khi đã có CDN dự phòng.
 - **Config service và canary/A-B**: `remotes.json` vẫn là file tĩnh viết tay, nên release và rollback phải sửa tay. Chi tiết hướng làm nằm trong [TODO.md](TODO.md).
-- **Design system dưới dạng remote riêng**: demo đã có `@shop/ui` dạng shared singleton (Bước 11). Chuyển sang remote riêng khi muốn cập nhật giao diện mà không phải build lại các app.
+- **Design system tách khỏi code ứng dụng hoàn toàn**: demo có cả hai cách (Bước 11 và 12), nhưng URL của `design-system` đang ghi trong `ds.tsx`, và design system remote mới chỉ có `Badge`. Khi dùng thật cần thêm component, quản lý version của API và đưa URL vào config service.

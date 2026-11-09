@@ -6,10 +6,11 @@
     "products",
     "cart",
     "legacy",
-    "ui"
+    "ui",
+    "design-system"
   ],
   "scripts": {
-    "dev": "concurrently -n host,products,cart,legacy -c blue,green,magenta,yellow \"npm run dev -w host\" \"npm run dev -w products\" \"npm run dev -w cart\" \"npm run dev -w legacy\"",
+    "dev": "concurrently -n host,products,cart,legacy,ds -c blue,green,magenta,yellow,cyan \"npm run dev -w host\" \"npm run dev -w products\" \"npm run dev -w cart\" \"npm run dev -w legacy\" \"npm run dev -w design-system\"",
     "build": "npm run build --workspaces --if-present"
   },
   "devDependencies": {

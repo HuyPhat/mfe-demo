@@ -35,3 +35,13 @@
 - Gắn nhãn version vào log lỗi và số liệu để so sánh nhóm canary với nhóm còn lại.
 
 **Xong khi:** đổi một con số phần trăm là thay đổi được số người dùng nhận bản mới, không phải build hay sửa file.
+
+## Đưa URL của design-system ra khỏi code
+
+**Hiện tại:** `products/src/ds.tsx` và `cart/src/ds.tsx` ghi cứng `http://localhost:3004/mf-manifest.json`. Đổi nơi đặt design-system (CDN, version mới) thì phải sửa và build lại hai app.
+
+**Mục tiêu:** URL của `ds` lấy từ cùng nguồn cấu hình với `remotes.json` (hoặc config service), để cập nhật hay rollback design-system không cần build lại app nào.
+
+**Việc cần quyết định khi làm:**
+- Host truyền URL xuống remote (qua props hay biến toàn cục), hay mỗi remote tự gọi config service.
+- Cách giữ API của `Badge` tương thích ngược, vì mọi app đều nhận bản ds đang chạy.

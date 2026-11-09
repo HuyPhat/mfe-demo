@@ -1,0 +1,51 @@
+import { rspack } from '@rspack/core';
+import { ModuleFederationPlugin } from '@module-federation/enhanced/rspack';
+import pkg from './package.json' with { type: 'json' };
+
+export default {
+  entry: './src/index.ts',
+  output: {
+    publicPath: 'auto', // chunk URLs resolve relative to wherever remoteEntry is hosted -> deploy to any CDN path
+    uniqueName: 'ds',   // avoids global name collisions between apps on the same page
+    clean: true,
+  },
+  resolve: { extensions: ['.ts', '.tsx', '.js', '.jsx'] },
+  module: {
+    rules: [
+      {
+        test: /\.[jt]sx?$/,
+        exclude: /node_modules/,
+        loader: 'builtin:swc-loader',
+        options: {
+          jsc: {
+            parser: { syntax: 'typescript', tsx: true },
+            transform: { react: { runtime: 'automatic' } },
+          },
+        },
+      },
+      // CSS Modules: class names get hashed -> no style collisions between micro-frontends
+      { test: /\.module\.css$/, type: 'css/module' },
+    ],
+  },
+  plugins: [
+    new rspack.HtmlRspackPlugin({ title: 'design-system', templateContent: '<div id="root"></div>' }),
+    new rspack.DefinePlugin({ __APP_VERSION__: JSON.stringify(pkg.version) }),
+    new ModuleFederationPlugin({
+      name: 'ds',
+      filename: 'remoteEntry.js',
+      exposes: { './Badge': './src/Badge.tsx' }, // public API of the design system
+      shared: {
+        // singleton: only ONE React on the page (two Reacts = broken hooks)
+        // requiredVersion: semver range this app accepts; mismatch -> warning in console
+        react: { singleton: true, requiredVersion: pkg.dependencies.react },
+        'react-dom': { singleton: true, requiredVersion: pkg.dependencies['react-dom'] },
+      },
+      dts: false, // plain JS demo; with TS, MF can generate & download remote types
+    }),
+  ],
+  devServer: {
+    port: 3004,
+    hot: false, // remote runs inside host; its HMR runtime breaks with ChunkVersionError after rebuild
+    headers: { 'Access-Control-Allow-Origin': '*' }, // host on :3000 fetches remotes cross-origin
+  },
+};

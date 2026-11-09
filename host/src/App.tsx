@@ -14,7 +14,7 @@ export default function App() {
   return (
     <div style={{ fontFamily: 'system-ui', maxWidth: 900, margin: '0 auto' }}>
       <header style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '2px solid #1677ff' }}>
-        <h1 style={{ color: '#1677ff' }}>Shop (host) <small style={{ fontSize: 12 }}>ui v{UI_VERSION}</small></h1>
+        <h1 style={{ color: '#1677ff' }}>Shop (host) <small style={{ fontSize: 12 }}>ui v{UI_VERSION}</small><RemoteComponent id="ds/Badge">design-system remote</RemoteComponent></h1>
         <h2>🛒 {count}</h2>
       </header>
       <main style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16, marginTop: 16 }}>

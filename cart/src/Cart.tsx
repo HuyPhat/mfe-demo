@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { Panel, UI_VERSION } from '@shop/ui';
 import type { CartItem } from './events';
+import { Badge } from './ds';
 
 export default function Cart() {
   const [items, setItems] = useState<CartItem[]>([]);
@@ -19,7 +20,7 @@ export default function Cart() {
 
   const total = items.reduce((sum, i) => sum + i.price, 0);
   return (
-    <Panel accent="purple" title={<>Cart <small>v{__APP_VERSION__} · ui v{UI_VERSION}</small></>}>
+    <Panel accent="purple" title={<>Cart <small>v{__APP_VERSION__} · ui v{UI_VERSION}</small><Suspense fallback={null}><Badge>{items.length} món</Badge></Suspense></>}>
       {items.length === 0 ? <p>Giỏ hàng trống</p> : (
         <ul>{items.map((i, idx) => <li key={idx}>{i.name}</li>)}</ul>
       )}
