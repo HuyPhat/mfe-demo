@@ -514,7 +514,7 @@ Khai báo `shared` với `singleton: true` cùng `requiredVersion`. Bootstrap pa
 Nếu thư viện không bắt buộc singleton (ví dụ lodash), hãy bỏ `singleton`. Mỗi app sẽ lấy bản thoả `requiredVersion` của mình, chấp nhận tải 2 bản. Nếu là React thì tốt nhất là thống nhất major version trong toàn tổ chức. Nếu có một app cũ chưa nâng được (như remote `legacy` chạy React 17 trong demo này), hãy cho app đó mang React riêng (`singleton: false`) và tự mount vào một `<div>` do host cấp, chỉ giao tiếp qua event hoặc props (xem Bước 10). Đây chỉ là giải pháp tạm trong lúc chuyển tiếp.
 
 **Q: Versioning remote thế nào để rollback nhanh?**
-Mỗi bản build được upload lên CDN theo path bất biến (`/products/1.2.0/`). Host đọc URL từ `remotes.json` hoặc config service lúc runtime (dynamic remotes). Rollback chỉ là sửa một dòng config. Nhớ đặt cache: `remoteEntry`/manifest cache ngắn hoặc không cache, các chunk có hash thì cache lâu dài.
+Mỗi bản build được upload lên CDN theo path bất biến (`/products/1.2.0/`). Host đọc URL từ `remotes.json` hoặc config service lúc runtime (dynamic remotes). Rollback chỉ là sửa một dòng config. Về cache: vì mỗi bản nằm trong thư mục có version nên mọi file trong đó cache lâu dài được (URL không bao giờ trỏ tới nội dung khác). Thứ phải cache ngắn hoặc không cache là `remotes.json` (hoặc config service), vì đó là con trỏ đổi mỗi lần release. Nếu bạn ghi đè file ở đường dẫn cố định (không có thư mục version) thì cần thêm hash vào tên chunk, và `remoteEntry`/manifest phải cache ngắn.
 
 **Q: Remote chết hoặc lỗi thì sao?**
 Dùng ErrorBoundary và Suspense fallback cho từng remote, có retry, và có thể thêm runtime plugin `errorLoadRemote` để chuyển sang URL dự phòng. Remote lỗi không được phép làm sập cả trang.
