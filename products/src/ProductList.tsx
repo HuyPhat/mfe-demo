@@ -15,7 +15,7 @@ const addToCart = (product: CartItem) =>
 export default function ProductList() {
   return (
     <section className={styles.box}>
-      <h2 className={styles.title}>Products <small>v{__APP_VERSION__}</small></h2>
+      <h2 className={styles.title}>New Products <small>v{__APP_VERSION__}</small></h2>
       {PRODUCTS.map((p) => (
         <div key={p.id} className={styles.row}>
           <span>{p.name} — {p.price.toLocaleString('vi-VN')}₫</span>
