@@ -1,3 +1,4 @@
+import { Button, Panel, UI_VERSION } from '@shop/ui';
 import * as styles from './ProductList.module.css';
 import type { CartItem } from './events';
 
@@ -14,14 +15,13 @@ const addToCart = (product: CartItem) =>
 
 export default function ProductList() {
   return (
-    <section className={styles.box}>
-      <h2 className={styles.title}>New Products <small>v{__APP_VERSION__}</small></h2>
+    <Panel accent="green" title={<>New Products <small>v{__APP_VERSION__} · ui v{UI_VERSION}</small></>}>
       {PRODUCTS.map((p) => (
         <div key={p.id} className={styles.row}>
           <span>{p.name} — {p.price.toLocaleString('vi-VN')}₫</span>
-          <button onClick={() => addToCart(p)}>Thêm vào giỏ</button>
+          <Button onClick={() => addToCart(p)}>Thêm vào giỏ</Button>
         </div>
       ))}
-    </section>
+    </Panel>
   );
 }

@@ -1,0 +1,2 @@
+.box { border: 2px dashed var(--accent); padding: 12px; border-radius: 8px; }
+.title { color: var(--accent); margin-top: 0; }

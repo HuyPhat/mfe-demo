@@ -9,6 +9,8 @@ Một shop nhỏ gồm **4 ứng dụng độc lập**. Mỗi app build, chạy 
 | `cart`     | 3002 | Remote: giỏ hàng             | Checkout team |
 | `legacy`   | 3003 | Remote: app cũ chạy **React 17**, tự mount vào root riêng | Legacy team |
 
+Ngoài ra, thư mục `ui/` là package design system dùng chung `@shop/ui` (không phải app, không có port), xem Bước 11.
+
 ```bash
 npm install
 ```
@@ -147,7 +149,7 @@ Remote là code của team khác, được deploy lúc nào không biết, nên 
 - `ErrorBoundary`: remote ném lỗi lúc render, hoặc tải `remoteEntry` thất bại (404, CDN chết), thì chỉ ô đó hiện fallback, phần còn lại vẫn chạy. Mình đã thử trỏ `cart` sang port chết: products vẫn hoạt động, ô cart hiện lỗi `RUNTIME-003 Failed to get manifest` cùng nút "Thử lại".
 - `Suspense` cùng `lazy`: remote chỉ được tải khi cần. Có `cache` (biến cấp module) để mỗi remote chỉ tạo `lazy()` một lần; nếu không, mỗi lần render React sẽ mount lại component.
 - **Nút "Thử lại"**: React giữ kết quả bị reject của `lazy()` mãi mãi, nên nút này phải xoá entry trong `cache` (`cache.delete(id)`) thì lần sau mới gọi lại `loadRemote`. Vì vậy `getLazy` được gọi trong component con `Remote` nằm **bên trong** `ErrorBoundary`: khi boundary reset, con này mount lại và đọc lại `cache`. Nếu gọi `getLazy` ở component cha thì cây element vẫn giữ `lazy()` cũ và nút không có tác dụng.
-- **CSS isolation**: `products` và `cart` đều có class `.box` và `.title`, nhưng nhờ **CSS Modules** (`type: 'css/module'`) tên class được hash nên không đè lên nhau. Các cách khác: prefix theo tên app, CSS-in-JS, Shadow DOM (cô lập mạnh nhất nhưng khó làm theme).
+- **CSS isolation**: `@shop/ui` (`.box`, `.title`, `.button`) và `products` (`.row`) đều dùng tên class ngắn, nhưng nhờ **CSS Modules** (`type: 'css/module'`) tên class được hash nên không đè lên nhau. Các cách khác: prefix theo tên app, CSS-in-JS, Shadow DOM (cô lập mạnh nhất nhưng khó làm theme).
 - **Global isolation**: không ghi lung tung lên `window`, và `uniqueName` phải khác nhau giữa các app.
 
 ### Bước 7: Interoperability, tức là giao tiếp giữa các micro-frontend
@@ -195,6 +197,30 @@ export const unmount = (el: HTMLElement) => ReactDOM.unmountComponentAtNode(el);
 - Host **không render** component của legacy. [host/src/LegacyApp.tsx](host/src/LegacyApp.tsx) cấp một thẻ `<div>`, gọi `loadRemote('legacy/mount')` trong `useEffect` rồi `mount(div)`; khi component bị gỡ thì gọi `unmount`. Nhờ vậy hai bản React nằm ở hai cây riêng và không đụng hook của nhau.
 - Giao tiếp chỉ qua `window`: legacy bắn `cart:add` và cart (React 19) nhận được bình thường.
 - Cái giá: tải thêm một bản React, và không chia sẻ được context hay state của React. Chỉ nên là giải pháp tạm trong lúc nâng cấp app cũ.
+
+### Bước 11: Design system dùng chung ([ui/](ui/))
+
+`products` và `cart` từng có CSS giống nhau (một khung viền và tiêu đề). Khi có từ 2 app cần cùng một giao diện thì gom vào một package chung, `@shop/ui` (npm workspace), gồm `Panel`, `Button` và `UI_VERSION`.
+
+Demo chọn cách **shared singleton**: `@shop/ui` được khai báo trong `shared` của host, products và cart.
+
+```js
+'@shop/ui': { singleton: true, requiredVersion: pkg.dependencies['@shop/ui'] },
+```
+
+- Cả trang chỉ tải **một** bản `@shop/ui` (kiểm tra bằng `__FEDERATION__.__SHARE__['host:1.0.0'].default['@shop/ui']`: `from: host`, `useIn: [host, products, cart]`).
+- **Host phải import thư viện thì mới là bên cung cấp.** Host chỉ khai báo trong `shared` mà không dùng thì không đăng ký nó vào kho chung, và khi đó `products` và `cart` mỗi bên tải một bản riêng (mình đã gặp đúng trường hợp này khi làm demo). Vì vậy header của host hiện `ui v{UI_VERSION}`.
+- Màu của từng khung truyền qua prop `accent` (`green` cho products, `purple` cho cart). `Button` lấy màu từ khung chứa nó qua biến CSS `--accent`.
+
+**Đánh đổi so với cách expose design system thành một remote riêng:**
+
+| | Shared singleton (demo) | Remote riêng |
+|---|---|---|
+| Đổi giao diện | phải build lại app cung cấp (host) | deploy remote `ui`, các app tự nhận |
+| Coupling | mọi app phải chấp nhận cùng dải version | các app phải biết URL của remote `ui` |
+| Độ phức tạp | thấp, không thêm server | thêm một app và một URL phải quản lý |
+
+Chọn shared singleton khi design system đổi ít và bạn muốn đơn giản; chọn remote riêng khi muốn cập nhật giao diện không cần build lại các app.
 
 ---
 
@@ -499,6 +525,32 @@ Ví dụ dưới đây giả sử `products/package.json` đang là `1.1.0`. N�
 
 ---
 
+### Lab 9: Đổi design system dùng chung
+
+**Mục tiêu:** thấy một thay đổi ở `@shop/ui` tác động tới nhiều app cùng lúc, và hiểu vì sao app cung cấp phải build lại.
+
+**Các bước**
+1. Chạy cả 4 app (`npm run dev`) và mở http://localhost:3000. Ghi lại hình dạng khung (viền nét đứt, bo góc 8px).
+2. Trong `ui/src/Panel.module.css`, đổi `border: 2px dashed` thành `border: 2px solid` và `border-radius: 8px` thành `20px`.
+3. Đợi terminal host báo `compiled successfully`, rồi nhấn Cmd+R ở trang host.
+4. Dán đoạn này vào Console để xem ai cung cấp và ai dùng:
+   ```js
+   Object.entries(__FEDERATION__.__SHARE__['host:1.0.0'].default['@shop/ui'])
+     .map(([v, e]) => ({ v, from: e.from, useIn: e.useIn }))
+   ```
+
+**Kết quả mong đợi**
+- Cả khung products và khung cart đổi kiểu viền và độ bo cùng lúc, dù bạn không sửa file nào của hai app đó.
+- Kết quả Console: `from: "host"`, `useIn: ["host", "products", "cart"]`.
+
+**Thử thêm:** xoá dòng `import { UI_VERSION } from '@shop/ui'` và chỗ dùng `UI_VERSION` ở `host/src/App.tsx`, restart host. Chạy lại đoạn Console ở bước 4 và xem `from` đổi sang app khác, và trong tab Network có hai file `ui_src_index_ts-*.js` đến từ hai port khác nhau. Đây là lý do host cần là bên cung cấp.
+
+**Hoàn tác:** `git checkout ui/src/Panel.module.css host/src/App.tsx`
+
+> Các kết quả mong đợi ở lab này mình suy ra từ việc đã quan sát trong demo, chưa chạy riêng từng bước.
+
+---
+
 ## Phần 4: Câu hỏi phỏng vấn thường gặp
 
 **Q: Micro-frontend giải quyết vấn đề gì? Khi nào không nên dùng?**
@@ -544,4 +596,4 @@ Module Federation 2.0 có tính năng `dts`: remote tự sinh file `.d.ts` của
 - **`dts` (tự sinh type của remote)**: demo đã dùng TS nhưng tắt `dts: false` cho gọn, nên `loadRemote` phải ép kiểu thủ công. Bật `dts` khi remote và host ở repo khác nhau.
 - **Runtime plugin fallback/retry** (`errorLoadRemote`, `@module-federation/retry-plugin`): thêm khi đã có CDN dự phòng.
 - **Config service và canary/A-B**: `remotes.json` vẫn là file tĩnh viết tay, nên release và rollback phải sửa tay. Chi tiết hướng làm nằm trong [TODO.md](TODO.md).
-- **Shared design system** (expose dưới dạng remote hoặc shared singleton): thêm khi có từ 2 app trở lên cần cùng một UI kit.
+- **Design system dưới dạng remote riêng**: demo đã có `@shop/ui` dạng shared singleton (Bước 11). Chuyển sang remote riêng khi muốn cập nhật giao diện mà không phải build lại các app.

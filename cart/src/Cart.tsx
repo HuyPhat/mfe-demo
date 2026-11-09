@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import * as styles from './Cart.module.css';
+import { Panel, UI_VERSION } from '@shop/ui';
 import type { CartItem } from './events';
 
 export default function Cart() {
@@ -19,12 +19,11 @@ export default function Cart() {
 
   const total = items.reduce((sum, i) => sum + i.price, 0);
   return (
-    <section className={styles.box}>
-      <h2 className={styles.title}>Cart <small>v{__APP_VERSION__}</small></h2>
+    <Panel accent="purple" title={<>Cart <small>v{__APP_VERSION__} · ui v{UI_VERSION}</small></>}>
       {items.length === 0 ? <p>Giỏ hàng trống</p> : (
         <ul>{items.map((i, idx) => <li key={idx}>{i.name}</li>)}</ul>
       )}
       <strong>Tổng: {total.toLocaleString('vi-VN')}₫</strong>
-    </section>
+    </Panel>
   );
 }

@@ -1,3 +1,1 @@
-.box { border: 2px dashed green; padding: 12px; border-radius: 8px; }
-.title { color: green; margin-top: 0; }
 .row { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; }

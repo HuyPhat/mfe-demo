@@ -39,6 +39,8 @@ export default {
         // requiredVersion: semver range this app accepts; mismatch -> warning in console
         react: { singleton: true, requiredVersion: pkg.dependencies.react },
         'react-dom': { singleton: true, requiredVersion: pkg.dependencies['react-dom'] },
+        // design system: one copy for the whole page; every app must accept the same version range
+        '@shop/ui': { singleton: true, requiredVersion: pkg.dependencies['@shop/ui'] },
       },
       dts: false, // plain JS demo; with TS, MF can generate & download remote types
     }),

@@ -1,0 +1,2 @@
+.button { background: var(--accent, steelblue); color: white; border: 0; border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+.button:hover { filter: brightness(1.1); }

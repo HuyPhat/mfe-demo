@@ -5,11 +5,12 @@
     "host",
     "products",
     "cart",
-    "legacy"
+    "legacy",
+    "ui"
   ],
   "scripts": {
     "dev": "concurrently -n host,products,cart,legacy -c blue,green,magenta,yellow \"npm run dev -w host\" \"npm run dev -w products\" \"npm run dev -w cart\" \"npm run dev -w legacy\"",
-    "build": "npm run build --workspaces"
+    "build": "npm run build --workspaces --if-present"
   },
   "devDependencies": {
     "@types/react": "^19.3.0",
